@@ -83,7 +83,7 @@ vault write auth/kubernetes/config \
 
 # Create a policy for the application
 vault policy write webapp - <<EOF
-path "secret/data/mongodb/credentials" {
+path "database/creds/mongodb-role" {
   capabilities = ["read"]
 }
 EOF
@@ -96,7 +96,31 @@ vault write auth/kubernetes/role/webapp \
     ttl=1h
 ```
 
-### 5. Configure VSO Resources
+### 5. Configure MongoDB Database Secrets Engine
+
+Enable and configure the database secrets engine for MongoDB:
+
+```bash
+# Enable the database secrets engine
+vault secrets enable database
+
+# Configure MongoDB connection
+vault write database/config/mongodb \
+    plugin_name=mongodb-database-plugin \
+    allowed_roles="mongodb-role" \
+    connection_url="mongodb://{{username}}:{{password}}@mongodb.default.svc.cluster.local:27017/admin?authMechanism=SCRAM-SHA-256" \
+    username="admin" \
+    password="password"
+
+# Create a role for MongoDB credentials
+vault write database/roles/mongodb-role \
+    db_name=mongodb \
+    creation_statements='{"db": "admin", "roles": [{"role": "readWrite", "db": "admin"}]}' \
+    default_ttl="1h" \
+    max_ttl="24h"
+```
+
+### 6. Configure VSO Resources
 
 Apply the VSO configuration to manage MongoDB credentials:
 
@@ -122,33 +146,27 @@ spec:
     serviceAccount: default
 ---
 apiVersion: secrets.hashicorp.com/v1beta1
-kind: VaultStaticSecret
+kind: VaultDynamicSecret
 metadata:
   name: mongodb-credentials
 spec:
   vaultAuthRef: vault-auth
-  mount: secret
-  type: kv-v2
-  path: mongodb/credentials
-  refreshAfter: 1h
+  mount: database
+  path: creds/mongodb-role
   destination:
     name: mongodb-secret
     create: true
+  rolloutRestartTargets:
+    - kind: StatefulSet
+      name: mongodb
+    - kind: Deployment
+      name: fastapi-app
 ```
 
 Apply the configuration:
 
 ```bash
 kubectl apply -f vso-config.yaml
-```
-
-### 6. Store MongoDB Credentials in Vault
-
-```bash
-# Store MongoDB credentials
-vault kv put secret/mongodb/credentials \
-    MONGO_INITDB_ROOT_USERNAME=admin \
-    MONGO_INITDB_ROOT_PASSWORD=password
 ```
 
 ### 7. Deploy the Application
@@ -165,7 +183,7 @@ kubectl apply -f app/deployment.yaml
 ```bash
 kubectl get vaultconnection
 kubectl get vaultauth
-kubectl get vaultstaticsecret
+kubectl get vaultdynamicsecret
 ```
 
 2. Verify the MongoDB secret is created:
@@ -176,6 +194,12 @@ kubectl get secret mongodb-secret
 3. Check if the application pods are running:
 ```bash
 kubectl get pods
+```
+
+4. Verify dynamic credentials generation:
+```bash
+# Generate new credentials
+vault read database/creds/mongodb-role
 ```
 
 ## Accessing the Application
@@ -211,6 +235,8 @@ helm uninstall vault-secrets-operator
 - Implement proper RBAC policies in Vault
 - Configure resource limits and requests appropriately
 - Use dedicated service accounts with minimal permissions
+- Regularly rotate MongoDB root credentials
+- Monitor credential lease expirations
 
 ## Troubleshooting
 
@@ -221,10 +247,16 @@ helm uninstall vault-secrets-operator
 
 2. If secrets aren't syncing:
    - Check VSO operator logs
-   - Verify VaultStaticSecret configuration
-   - Ensure the secret exists in Vault
+   - Verify VaultDynamicSecret configuration
+   - Ensure the database secrets engine is properly configured
 
 3. If the application can't connect to MongoDB:
    - Verify MongoDB credentials in Vault
-   - Check if the secret is properly mounted
+   - Check if the dynamic secret is properly mounted
    - Verify MongoDB service is running
+   - Check credential lease expiration
+
+4. If dynamic credentials aren't rotating:
+   - Verify TTL settings in the role configuration
+   - Check VSO logs for rotation errors
+   - Ensure the MongoDB connection is stable

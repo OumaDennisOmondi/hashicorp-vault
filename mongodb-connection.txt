@@ -4,6 +4,11 @@
 
 mongodb://admin:password@mongodb.default.svc.cluster.local:27017/admin?authMechanism=SCRAM-SHA-256
 
+v-token-mongodb-role-QWkU6pG6AH5vFAxIJTxi-1738415058
+0YIK-e6OnOPHQpMpkOYA
+
+
+
 # Note: Replace 'admin' and 'password' with your actual MongoDB admin credentials
 # The URL uses the Kubernetes service DNS for MongoDB
 # Authentication mechanism is set to SCRAM-SHA-256 for security
