@@ -1,0 +1,49 @@
+apiVersion: secrets.hashicorp.com/v1beta1
+kind: VaultConnection
+metadata:
+  name: vault-connection
+spec:
+  address: http://vault.default.svc.cluster.local:8200
+---
+apiVersion: secrets.hashicorp.com/v1beta1
+kind: VaultAuth
+metadata:
+  name: vault-auth
+spec:
+  method: kubernetes
+  mount: kubernetes
+  vaultConnectionRef: vault-connection
+  kubernetes:
+    role: webapp
+    serviceAccount: default
+---
+apiVersion: secrets.hashicorp.com/v1beta1
+kind: VaultDynamicSecret
+metadata:
+  name: mongodb-credentials
+spec:
+  vaultAuthRef: vault-auth
+  mount: database
+  path: creds/mongodb-role
+  destination:
+    name: mongodb-secret
+    create: true
+  rolloutRestartTargets:
+    - kind: StatefulSet
+      name: mongodb
+    - kind: Deployment
+      name: fastapi-app
+---
+apiVersion: secrets.hashicorp.com/v1beta1
+kind: VaultStaticSecret
+metadata:
+  name: api-key
+spec:
+  vaultAuthRef: vault-auth
+  mount: secret
+  type: kv-v2
+  path: api/key
+  refreshAfter: 1h
+  destination:
+    name: api-key-secret
+    create: true
